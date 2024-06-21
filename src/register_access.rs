@@ -1,5 +1,8 @@
 use crate::{Error, Mlx9061x, SlaveAddr};
-use embedded_hal::blocking::{delay, i2c};
+use embedded_hal::{
+    i2c::I2c,
+    delay::DelayNs,
+};
 use smbus_pec::pec;
 
 pub mod mlx90614 {
@@ -41,11 +44,11 @@ pub mod mlx90615 {
     }
 }
 
-impl<E, I2C, IC> Mlx9061x<I2C, IC>
-    where
-        I2C: i2c::WriteRead<Error=E> + i2c::Write<Error=E>,
+impl<I2C, IC> Mlx9061x<I2C, IC>
+where
+    I2C: I2c,
 {
-    pub(crate) fn read_u16(&mut self, register: u8) -> Result<u16, Error<E>> {
+    pub(crate) fn read_u16(&mut self, register: u8) -> Result<u16, Error<I2C::Error>> {
         let mut data = [0; 3];
         self.i2c
             .write_read(self.address, &[register], &mut data)
@@ -79,7 +82,7 @@ impl<E, I2C, IC> Mlx9061x<I2C, IC>
         }
     }
 
-    pub(crate) fn read_i16(&mut self, register: u8) -> Result<i16, Error<E>> {
+    pub(crate) fn read_i16(&mut self, register: u8) -> Result<i16, Error<I2C::Error>> {
         let mut data = [0; 3];
         self.i2c
             .write_read(self.address, &[register], &mut data)
@@ -98,14 +101,14 @@ impl<E, I2C, IC> Mlx9061x<I2C, IC>
         Ok(self.msb_lsb_to_sign_magnitude(data[1], data[0]))
     }
 
-    pub(crate) fn write_u8(&mut self, command: u8) -> Result<(), Error<E>> {
+    pub(crate) fn write_u8(&mut self, command: u8) -> Result<(), Error<I2C::Error>> {
         let pec = pec(&[self.address << 1, command]);
         self.i2c
             .write(self.address, &[command, pec])
             .map_err(Error::I2C)
     }
 
-    pub(crate) fn write_u16(&mut self, command: u8, data: u16) -> Result<(), Error<E>> {
+    pub(crate) fn write_u16(&mut self, command: u8, data: u16) -> Result<(), Error<I2C::Error>> {
         let low = data as u8;
         let high = (data >> 8) as u8;
         let pec = pec(&[self.address << 1, command, low, high]);
@@ -114,18 +117,18 @@ impl<E, I2C, IC> Mlx9061x<I2C, IC>
             .map_err(Error::I2C)
     }
 
-    pub(crate) fn write_u16_eeprom<D: delay::DelayMs<u8>>(
+    pub(crate) fn write_u16_eeprom<D: DelayNs>(
         &mut self,
         command: u8,
         data: u16,
         delay: &mut D,
-    ) -> Result<(), Error<E>> {
+    ) -> Result<(), Error<I2C::Error>> {
         self.write_u16(command, 0)?;
-        delay.delay_ms(self.eeprom_write_delay_ms);
+        delay.delay_ms(self.eeprom_write_delay_ms as u32 * 1000);
         self.write_u16(command, data)
     }
 
-    pub(crate) fn check_pec(data: &[u8], expected: u8) -> Result<(), Error<E>> {
+    pub(crate) fn check_pec(data: &[u8], expected: u8) -> Result<(), Error<I2C::Error>> {
         if pec(data) != expected {
             Err(Error::ChecksumMismatch)
         } else {
@@ -133,7 +136,7 @@ impl<E, I2C, IC> Mlx9061x<I2C, IC>
         }
     }
 
-    pub(crate) fn get_address(address: SlaveAddr, default: u8) -> Result<u8, Error<E>> {
+    pub(crate) fn get_address(address: SlaveAddr, default: u8) -> Result<u8, Error<I2C::Error>> {
         match address {
             SlaveAddr::Default => Ok(default),
             SlaveAddr::Alternative(a) if a == 0 => Err(Error::InvalidInputData),

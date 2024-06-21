@@ -7,13 +7,14 @@ use crate::{
 };
 use core::marker::PhantomData;
 use embedded_hal::{
-    blocking::{delay::DelayMs, i2c},
-    digital::v2::OutputPin,
+    i2c::I2c,
+    digital::OutputPin,
+    delay::DelayNs,
 };
 
-impl<E, I2C> Mlx9061x<I2C, ic::Mlx90614>
+impl<I2C> Mlx9061x<I2C, ic::Mlx90614>
 where
-    I2C: i2c::WriteRead<Error = E> + i2c::Write<Error = E>,
+    I2C: I2c,
 {
     /// Create new instance of the MLX90614 device.
     ///
@@ -28,7 +29,7 @@ where
         i2c: I2C,
         address: SlaveAddr,
         eeprom_write_delay_ms: u8,
-    ) -> Result<Self, Error<E>> {
+    ) -> Result<Self, Error<I2C::Error>> {
         let address = Self::get_address(address, DEV_ADDR)?;
         Ok(Mlx9061x {
             i2c,
@@ -39,7 +40,7 @@ where
     }
 
     /// Read the ambient temperature in celsius degrees
-    pub fn ambient_temperature(&mut self) -> Result<f32, Error<E>> {
+    pub fn ambient_temperature(&mut self) -> Result<f32, Error<I2C::Error>> {
         let t = self.read_u16(Register::TA)?;
         let t = f32::from(t) * 0.02 - 273.15;
         Ok(t)
@@ -49,14 +50,14 @@ where
     ///
     /// Note ONLY use to avoid floating-point ops, as this gives less accurate
     /// temperature readings compared to using `ambient_temperature()`.
-    pub fn ambient_temperature_as_int(&mut self) -> Result<u16, Error<E>> {
+    pub fn ambient_temperature_as_int(&mut self) -> Result<u16, Error<I2C::Error>> {
         let t = self.read_u16(Register::TA)?;
         let t = (t * 2) / 100 - 273;
         Ok(t)
     }
 
     /// Read the object 1 temperature in celsius degrees
-    pub fn object1_temperature(&mut self) -> Result<f32, Error<E>> {
+    pub fn object1_temperature(&mut self) -> Result<f32, Error<I2C::Error>> {
         let t = self.read_u16(Register::TOBJ1)?;
         let t = f32::from(t) * 0.02 - 273.15;
         Ok(t)
@@ -66,7 +67,7 @@ where
     ///
     /// Note ONLY use to avoid floating-point ops, as this gives less accurate
     /// temperature readings compared to using `object1_temperature()`.
-    pub fn object1_temperature_as_int(&mut self) -> Result<u16, Error<E>> {
+    pub fn object1_temperature_as_int(&mut self) -> Result<u16, Error<I2C::Error>> {
         let t = self.read_u16(Register::TOBJ1)?;
         let t = (t * 2) / 100 - 273;
         Ok(t)
@@ -75,7 +76,7 @@ where
     /// Read the object 2 temperature in celsius degrees
     ///
     /// Note that this is only available in dual-zone thermopile device variants.
-    pub fn object2_temperature(&mut self) -> Result<f32, Error<E>> {
+    pub fn object2_temperature(&mut self) -> Result<f32, Error<I2C::Error>> {
         let t = self.read_u16(Register::TOBJ2)?;
         let t = f32::from(t) * 0.02 - 273.15;
         Ok(t)
@@ -87,24 +88,24 @@ where
     ///
     /// Note ONLY use to avoid floating-point ops, as this gives less accurate
     /// temperature readings compared to using `object2_temperature()`.
-    pub fn object2_temperature_as_int(&mut self) -> Result<u16, Error<E>> {
+    pub fn object2_temperature_as_int(&mut self) -> Result<u16, Error<I2C::Error>> {
         let t = self.read_u16(Register::TOBJ2)?;
         let t = (t * 2) / 100 - 273;
         Ok(t)
     }
 
     /// Read the channel 1 raw IR data
-    pub fn raw_ir_channel1(&mut self) -> Result<i16, Error<E>> {
+    pub fn raw_ir_channel1(&mut self) -> Result<i16, Error<I2C::Error>> {
         self.read_i16(Register::RAW_IR1)
     }
 
     /// Read the channel 2 raw IR data
-    pub fn raw_ir_channel2(&mut self) -> Result<i16, Error<E>> {
+    pub fn raw_ir_channel2(&mut self) -> Result<i16, Error<I2C::Error>> {
         self.read_i16(Register::RAW_IR2)
     }
 
     /// Get emissivity epsilon
-    pub fn emissivity(&mut self) -> Result<f32, Error<E>> {
+    pub fn emissivity(&mut self) -> Result<f32, Error<I2C::Error>> {
         let raw = self.read_u16(Register::EMISSIVITY)?;
         Ok(f32::from(raw) / 65535.0)
     }
@@ -112,11 +113,11 @@ where
     /// Set emissivity epsilon [0.1-1.0]
     ///
     /// Wrong values will return `Error::InvalidInputData`.
-    pub fn set_emissivity<D: DelayMs<u8>>(
+    pub fn set_emissivity<D: DelayNs>(
         &mut self,
         epsilon: f32,
         delay: &mut D,
-    ) -> Result<(), Error<E>> {
+    ) -> Result<(), Error<I2C::Error>> {
         if epsilon < 0.1 || epsilon > 1.0 {
             return Err(Error::InvalidInputData);
         }
@@ -128,7 +129,7 @@ where
     }
 
     /// Get the device ID
-    pub fn device_id(&mut self) -> Result<u64, Error<E>> {
+    pub fn device_id(&mut self) -> Result<u64, Error<I2C::Error>> {
         let mut id = 0;
         for i in 0..4 {
             let part = self.read_u16(Register::ID0 + i)?;
@@ -144,9 +145,9 @@ where
 /// Note that this includes a 33ms delay.
 pub fn wake_mlx90614<
     E,
-    SclPin: OutputPin<Error = E>,
-    SdaPin: OutputPin<Error = E>,
-    D: DelayMs<u8>,
+    SclPin: OutputPin<Error=E>,
+    SdaPin: OutputPin<Error=E>,
+    D: DelayNs,
 >(
     scl: &mut SclPin,
     sda: &mut SdaPin,
@@ -154,6 +155,6 @@ pub fn wake_mlx90614<
 ) -> Result<(), E> {
     scl.set_high()?;
     sda.set_low()?;
-    delay.delay_ms(mlx90614::WAKE_DELAY_MS);
+    delay.delay_ms(mlx90614::WAKE_DELAY_MS as u32 * 1000);
     sda.set_high()
 }

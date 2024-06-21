@@ -5,13 +5,14 @@ use crate::{
 };
 use core::marker::PhantomData;
 use embedded_hal::{
-    blocking::{delay::DelayMs, i2c},
-    digital::v2::OutputPin,
+    i2c::I2c,
+    digital::OutputPin,
+    delay::DelayNs,
 };
 
-impl<E, I2C> Mlx9061x<I2C, ic::Mlx90615>
+impl<I2C> Mlx9061x<I2C, ic::Mlx90615>
 where
-    I2C: i2c::WriteRead<Error = E> + i2c::Write<Error = E>,
+    I2C: I2c,
 {
     /// Create new instance of the MLX90615 device.
     ///
@@ -26,7 +27,7 @@ where
         i2c: I2C,
         address: SlaveAddr,
         eeprom_write_delay_ms: u8,
-    ) -> Result<Self, Error<E>> {
+    ) -> Result<Self, Error<I2C::Error>> {
         let address = Self::get_address(address, DEV_ADDR)?;
         Ok(Mlx9061x {
             i2c,
@@ -37,12 +38,12 @@ where
     }
 }
 
-impl<E, I2C> Mlx9061x<I2C, ic::Mlx90615>
+impl<I2C> Mlx9061x<I2C, ic::Mlx90615>
 where
-    I2C: i2c::WriteRead<Error = E> + i2c::Write<Error = E>,
+    I2C: I2c,
 {
     /// Read the ambient temperature in celsius degrees
-    pub fn ambient_temperature(&mut self) -> Result<f32, Error<E>> {
+    pub fn ambient_temperature(&mut self) -> Result<f32, Error<I2C::Error>> {
         let t = self.read_u16(Register::TA)?;
         let t = f32::from(t) * 0.02 - 273.15;
         Ok(t)
@@ -52,14 +53,14 @@ where
     ///
     /// Note ONLY use to avoid floating-point ops, as this gives less accurate
     /// temperature readings compared to using `ambient_temperature()`.
-    pub fn ambient_temperature_as_int(&mut self) -> Result<u16, Error<E>> {
+    pub fn ambient_temperature_as_int(&mut self) -> Result<u16, Error<I2C::Error>> {
         let t = self.read_u16(Register::TA)?;
         let t = (t * 2) / 100 - 273;
         Ok(t)
     }
 
     /// Read the object temperature in celsius degrees
-    pub fn object_temperature(&mut self) -> Result<f32, Error<E>> {
+    pub fn object_temperature(&mut self) -> Result<f32, Error<I2C::Error>> {
         let t = self.read_u16(Register::TOBJ)?;
         let t = f32::from(t) * 0.02 - 273.15;
         Ok(t)
@@ -69,19 +70,19 @@ where
     ///
     /// Note ONLY use to avoid floating-point ops, as this gives less accurate
     /// temperature readings compared to using `object_temperature()`.
-    pub fn object_temperature_as_int(&mut self) -> Result<u16, Error<E>> {
+    pub fn object_temperature_as_int(&mut self) -> Result<u16, Error<I2C::Error>> {
         let t = self.read_u16(Register::TOBJ)?;
         let t = (t * 2) / 100 - 273;
         Ok(t)
     }
 
     /// Read the raw IR data
-    pub fn raw_ir(&mut self) -> Result<i16, Error<E>> {
+    pub fn raw_ir(&mut self) -> Result<i16, Error<I2C::Error>> {
         self.read_i16(Register::RAW_IR)
     }
 
     /// Get emissivity epsilon
-    pub fn emissivity(&mut self) -> Result<f32, Error<E>> {
+    pub fn emissivity(&mut self) -> Result<f32, Error<I2C::Error>> {
         let raw = self.read_u16(Register::EMISSIVITY)?;
         Ok(f32::from(raw) / 16384.0)
     }
@@ -89,11 +90,11 @@ where
     /// Set emissivity epsilon [0.0-1.0]
     ///
     /// Wrong values will return `Error::InvalidInputData`.
-    pub fn set_emissivity<D: DelayMs<u8>>(
+    pub fn set_emissivity<D: DelayNs>(
         &mut self,
         epsilon: f32,
         delay: &mut D,
-    ) -> Result<(), Error<E>> {
+    ) -> Result<(), Error<I2C::Error>> {
         if epsilon < 0.0 || epsilon > 1.0 {
             return Err(Error::InvalidInputData);
         }
@@ -102,7 +103,7 @@ where
     }
 
     /// Get the device ID
-    pub fn device_id(&mut self) -> Result<u32, Error<E>> {
+    pub fn device_id(&mut self) -> Result<u32, Error<I2C::Error>> {
         let id0 = self.read_u16(Register::ID0)?;
         let id1 = self.read_u16(Register::ID0 + 1)?;
         Ok((u32::from(id0) << 16) | u32::from(id1))
@@ -112,11 +113,11 @@ where
 /// Wake device from sleep mode.
 ///
 /// Note that this includes a 39ms delay.
-pub fn wake_mlx90615<E, P: OutputPin<Error = E>, D: DelayMs<u8>>(
+pub fn wake_mlx90615<E, P: OutputPin<Error = E>, D: DelayNs>(
     scl: &mut P,
     delay: &mut D,
 ) -> Result<(), E> {
     scl.set_low()?;
-    delay.delay_ms(mlx90615::WAKE_DELAY_MS);
+    delay.delay_ms(mlx90615::WAKE_DELAY_MS as u32 * 1000);
     scl.set_high()
 }
