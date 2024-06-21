@@ -21,7 +21,7 @@ include = [
 edition = "2018"
 
 [dependencies]
-embedded-hal = "1.0"
+embedded-hal = "0.2.7"
 smbus-pec = "1"
 
 [dev-dependencies]
